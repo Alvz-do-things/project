@@ -1,0 +1,193 @@
+// Game Belajar Web App - Versi Lengkap dengan Supabase
+// Fitur: login, input belajar, leaderboard, chat, auto denda, rank, backend Supabase
+
+import { useEffect, useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
+
+export default function Home() {
+  const [username, setUsername] = useState("");
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [hours, setHours] = useState("");
+  const [proofType, setProofType] = useState("timelapse");
+  const [points, setPoints] = useState(0);
+  const [messages, setMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+  const [leaderboard, setLeaderboard] = useState([]);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetchUserPoints();
+      fetchMessages();
+      fetchLeaderboard();
+    }
+  }, [isLoggedIn]);
+
+  const fetchUserPoints = async () => {
+    const { data } = await supabase
+      .from('belajar')
+      .select('hours, proof_type')
+      .eq('username', username);
+
+    let total = 0;
+    data.forEach(({ hours, proof_type }) => {
+      const h = parseFloat(hours);
+      const pph = proof_type === "timelapse" ? 1.5 : proof_type === "photo" ? 1 : 0.5;
+      total += h * pph;
+    });
+    setPoints(total);
+  };
+
+  const fetchMessages = async () => {
+    const { data } = await supabase
+      .from('messages')
+      .select('*')
+      .order('created_at', { ascending: true });
+    setMessages(data);
+  };
+
+  const fetchLeaderboard = async () => {
+    const { data } = await supabase
+      .from('belajar')
+      .select('username, hours, proof_type');
+
+    const scoreMap = {};
+    data.forEach(({ username, hours, proof_type }) => {
+      const h = parseFloat(hours);
+      const pph = proof_type === "timelapse" ? 1.5 : proof_type === "photo" ? 1 : 0.5;
+      if (!scoreMap[username]) scoreMap[username] = 0;
+      scoreMap[username] += h * pph;
+    });
+
+    const leaderboardData = Object.entries(scoreMap)
+      .map(([username, points]) => ({ username, points }))
+      .filter(entry => entry.points > 0)
+      .sort((a, b) => b.points - a.points);
+    setLeaderboard(leaderboardData);
+  };
+
+  const handleLogin = async () => {
+    if (username.trim() !== "") {
+      setIsLoggedIn(true);
+    }
+  };
+
+  const handleAddPoints = async () => {
+    const h = parseFloat(hours);
+    await supabase.from('belajar').insert({ username, hours: h, proof_type: proofType });
+    setHours("");
+    fetchUserPoints();
+    fetchLeaderboard();
+  };
+
+  const handleSendMessage = async () => {
+    if (chatInput.trim() !== "") {
+      await supabase.from('messages').insert({ username, text: chatInput });
+      setChatInput("");
+      fetchMessages();
+    }
+  };
+
+  const totalPoints = points;
+  const deficit = Math.max(0, 7 - totalPoints);
+  const fine = deficit * 2;
+  const rank = totalPoints >= 10 ? "🔥 Elite" : totalPoints >= 7 ? "💪 Warrior" : "👧 Rookie";
+
+  if (!isLoggedIn) {
+    return (
+      <div className="p-6 max-w-md mx-auto">
+        <h1 className="text-xl font-bold mb-4">Masuk dulu nich!</h1>
+        <Input
+          placeholder="Masukkan username u..."
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+        />
+        <Button className="mt-2" onClick={handleLogin}>Login</Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 max-w-xl mx-auto space-y-6">
+      <h1 className="text-2xl font-bold">Halo, {username}! Rank u: {rank}</h1>
+
+      <Card>
+        <CardContent className="p-4 space-y-4">
+          <h2 className="font-semibold text-lg">Input Belajar</h2>
+          <Input
+            placeholder="Berapa jam belajar nich?"
+            value={hours}
+            onChange={(e) => setHours(e.target.value)}
+            type="number"
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => setProofType("timelapse")}
+              variant={proofType === "timelapse" ? "default" : "outline"}>
+              Timelapse (1.5)
+            </Button>
+            <Button onClick={() => setProofType("photo")}
+              variant={proofType === "photo" ? "default" : "outline"}>
+              Foto/Screenshot (1)
+            </Button>
+            <Button onClick={() => setProofType("none")}
+              variant={proofType === "none" ? "default" : "outline"}>
+              Tanpa Bukti (0.5)
+            </Button>
+          </div>
+          <Button onClick={handleAddPoints} className="w-full">Tambah Poin</Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-4">
+          <h2 className="font-semibold text-lg mb-2">Poin u minggu ini</h2>
+          <p className="text-xl font-bold">{points.toFixed(2)} poin</p>
+          {deficit > 0 && (
+            <p className="text-sm text-red-500">Kurang {deficit.toFixed(1)} poin, kena denda Rp{fine.toFixed(0)}</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-4">
+          <h2 className="font-semibold text-lg mb-2">Leaderboard🔥</h2>
+          <ul className="space-y-1">
+            {leaderboard.map((user, i) => (
+              <li key={i} className="flex justify-between">
+                <span>{i + 1}. {user.username}</span>
+                <span>{user.points.toFixed(2)} pts</span>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <h2 className="font-semibold text-lg">Chat Room 💬</h2>
+          <div className="h-40 overflow-y-scroll bg-gray-100 p-2 rounded-md">
+            {messages.map((msg, idx) => (
+              <p key={idx}><strong>{msg.username}:</strong> {msg.text}</p>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Ketik pesan..."
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+            />
+            <Button onClick={handleSendMessage}>Kirim</Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
